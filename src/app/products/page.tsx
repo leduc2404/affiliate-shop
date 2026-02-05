@@ -2,10 +2,18 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
+import dynamic from 'next/dynamic';
 import ProductSection from '@/components/ProductSection';
 import NavMenu from '@/components/NavMenu';
-import TetDecorations from '@/components/TetDecorations';
 import { Product } from '@/types';
+
+// Dynamic import TetDecorations to reduce initial bundle and CLS
+const TetDecorations = dynamic(() => import('@/components/TetDecorations'), {
+  ssr: false,
+  loading: () => (
+    <div className="pointer-events-none fixed inset-0 overflow-hidden z-0" aria-hidden="true" />
+  )
+});
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);

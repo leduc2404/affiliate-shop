@@ -31,6 +31,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="vi">
+      <head>
+        {/* Preconnect to Shopee CDN for faster image loading */}
+        <link rel="preconnect" href="https://down-bs-vn.img.susercontent.com" crossOrigin="" />
+        <link rel="dns-prefetch" href="https://down-bs-vn.img.susercontent.com" />
+        <link rel="preconnect" href="https://cf.shopee.vn" crossOrigin="" />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-[#0a0a0a]`}
       >

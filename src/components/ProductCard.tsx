@@ -40,6 +40,8 @@ export default function ProductCard({ product, index }: ProductCardProps) {
           fill
           className="object-cover group-hover:scale-105 transition-transform duration-200"
           sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+          priority={index < 4}
+          fetchPriority={index < 4 ? "high" : "auto"}
         />
         
         {/* Rating Badge */}
