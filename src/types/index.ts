@@ -21,6 +21,7 @@ export interface Product {
   discount_code?: string;
   is_hot?: boolean;
   created_at?: string;
+  createdAt?: string;
 }
 
 

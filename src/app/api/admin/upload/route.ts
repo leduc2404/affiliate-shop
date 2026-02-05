@@ -2,7 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/firebase-admin';
 import { Product } from '@/types';
 
-const COLLECTION_NAME = 'products';
+const COLLECTION_NAME = 'products_by_category';
+
+// Normalize category name to use as document ID
+function normalizeCategoryId(category: string): string {
+  return category
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // Remove diacritics
+    .replace(/đ/g, 'd')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
 
 // Product validation schema
 const validateProduct = (product: any, index: number): { valid: boolean; errors: string[] } => {
@@ -13,6 +24,11 @@ const validateProduct = (product: any, index: number): { valid: boolean; errors:
     if (!product[field]) {
       errors.push(`Product ${index + 1}: Missing field "${field}"`);
     }
+  }
+
+  // Ensure product has a unique ID
+  if (!product.product_id) {
+    errors.push(`Product ${index + 1}: Missing "product_id" for duplicate check`);
   }
 
   if (product.rating && (typeof product.rating !== 'number' || product.rating < 0 || product.rating > 5)) {
@@ -65,39 +81,85 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: false,
         error: 'Validation failed',
-        details: allErrors.slice(0, 10), // Show first 10 errors
+        details: allErrors.slice(0, 10),
         totalErrors: allErrors.length,
       }, { status: 400 });
     }
 
-    // Batch write to Firestore (max 500 per batch)
-    const batchSize = 500;
-    let successCount = 0;
-    let failedCount = 0;
-    const failedProducts: string[] = [];
-
-    for (let i = 0; i < products.length; i += batchSize) {
-      const batch = db.batch();
-      const chunk = products.slice(i, i + batchSize);
-
-      for (const product of chunk) {
-        try {
-          const docId = product.product_id || db.collection(COLLECTION_NAME).doc().id;
-          const docRef = db.collection(COLLECTION_NAME).doc(docId);
-          
-          batch.set(docRef, {
-            ...product,
-            product_id: docId,
-            createdAt: new Date().toISOString(),
-          });
-          successCount++;
-        } catch (err) {
-          failedCount++;
-          failedProducts.push(product.title || 'Unknown');
-        }
+    // Group products by category
+    const productsByCategory = new Map<string, Product[]>();
+    
+    for (const product of products) {
+      const category = product.phan_loai || 'uncategorized';
+      if (!productsByCategory.has(category)) {
+        productsByCategory.set(category, []);
       }
+      productsByCategory.get(category)!.push(product);
+    }
 
-      await batch.commit();
+    let successCount = 0;
+    let duplicateCount = 0;
+    let failedCount = 0;
+    const categoryStats: Record<string, { added: number; duplicates: number }> = {};
+
+    // Process each category document
+    for (const [category, newProducts] of productsByCategory) {
+      const categoryId = normalizeCategoryId(category);
+      const docRef = db.collection(COLLECTION_NAME).doc(categoryId);
+
+      try {
+        // Use transaction to safely read-then-write
+        await db.runTransaction(async (transaction) => {
+          const docSnap = await transaction.get(docRef);
+          
+          let existingProducts: Product[] = [];
+          let existingIds = new Set<string>();
+
+          if (docSnap.exists) {
+            const data = docSnap.data();
+            existingProducts = data?.items || [];
+            existingIds = new Set(existingProducts.map(p => p.product_id));
+          }
+
+          // Filter out duplicates by product_id
+          const productsToAdd: Product[] = [];
+          let catDuplicates = 0;
+
+          for (const product of newProducts) {
+            if (existingIds.has(product.product_id)) {
+              catDuplicates++;
+              duplicateCount++;
+            } else {
+              productsToAdd.push({
+                ...product,
+                createdAt: new Date().toISOString(),
+              });
+              existingIds.add(product.product_id);
+            }
+          }
+
+          // Merge new products with existing
+          const mergedProducts = [...existingProducts, ...productsToAdd];
+
+          // Update document
+          transaction.set(docRef, {
+            category: category,
+            categoryId: categoryId,
+            items: mergedProducts,
+            count: mergedProducts.length,
+            updatedAt: new Date().toISOString(),
+          });
+
+          successCount += productsToAdd.length;
+          categoryStats[category] = {
+            added: productsToAdd.length,
+            duplicates: catDuplicates,
+          };
+        });
+      } catch (err: any) {
+        console.error(`Error processing category ${category}:`, err);
+        failedCount += newProducts.length;
+      }
     }
 
     return NextResponse.json({
@@ -106,9 +168,10 @@ export async function POST(request: NextRequest) {
       stats: {
         total: products.length,
         success: successCount,
+        duplicates: duplicateCount,
         failed: failedCount,
       },
-      failedProducts: failedProducts.slice(0, 5),
+      categoryStats,
     });
   } catch (error: any) {
     console.error('Upload error:', error);
@@ -134,6 +197,8 @@ export async function PUT(request: NextRequest) {
 
     const allErrors: string[] = [];
     const categories = new Set<string>();
+    const productIds = new Set<string>();
+    let duplicatesInFile = 0;
 
     products.forEach((product, index) => {
       const { valid, errors } = validateProduct(product, index);
@@ -143,6 +208,14 @@ export async function PUT(request: NextRequest) {
       if (product.phan_loai) {
         categories.add(product.phan_loai);
       }
+      // Check for duplicates within the file itself
+      if (product.product_id) {
+        if (productIds.has(product.product_id)) {
+          duplicatesInFile++;
+        } else {
+          productIds.add(product.product_id);
+        }
+      }
     });
 
     return NextResponse.json({
@@ -150,6 +223,8 @@ export async function PUT(request: NextRequest) {
       valid: allErrors.length === 0,
       stats: {
         totalProducts: products.length,
+        uniqueProducts: productIds.size,
+        duplicatesInFile,
         categories: Array.from(categories),
         errors: allErrors.slice(0, 10),
         totalErrors: allErrors.length,
