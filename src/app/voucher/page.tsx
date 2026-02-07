@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import VoucherSection from '@/components/VoucherSection';
 import NavMenu from '@/components/NavMenu';
+import Footer from '@/components/Footer';
 
 // Voucher type
 interface Voucher {
@@ -55,22 +56,10 @@ export default function VoucherPage() {
         >
           <VoucherSection vouchers={vouchers} loading={loading} />
         </motion.div>
-
-        {/* Footer */}
-        <motion.footer
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.5 }}
-          className="mt-16 pb-8 text-center border-t border-gray-100 pt-8"
-        >
-          <p className="text-gray-400 text-sm">
-            © 2024 Shop Deals. Made with ❤️
-          </p>
-          <p className="text-gray-300 text-xs mt-2">
-            *Các link affiliate giúp chúng tôi nhận hoa hồng khi bạn mua hàng
-          </p>
-        </motion.footer>
       </div>
+
+      <Footer />
     </div>
   );
 }
+

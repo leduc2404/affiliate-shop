@@ -2,9 +2,9 @@
 
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Loader2, ChevronDown, ChevronLeft, ChevronRight, Filter, X, Sparkles, Tag, SlidersHorizontal, Package } from 'lucide-react';
+import { Loader2, ChevronDown, ChevronLeft, ChevronRight, Filter, X, Sparkles, Tag, SlidersHorizontal, Package, Search, Wand2 } from 'lucide-react';
 import ProductCard from './ProductCard';
-import SearchBox from './SearchBox';
+import ProductDetailModal from './ProductDetailModal';
 import { Product } from '@/types';
 
 // Price filter options
@@ -33,8 +33,14 @@ export default function ProductSection({ products, loading }: ProductSectionProp
   const [displayCount, setDisplayCount] = useState(20);
   const [categoryFilter, setCategoryFilter] = useState('Tất cả');
   const [priceFilter, setPriceFilter] = useState(0);
-  const [searchQuery, setSearchQuery] = useState('');
   const [categoryPage, setCategoryPage] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [aiSearchEnabled, setAiSearchEnabled] = useState(false);
+  const [aiSearching, setAiSearching] = useState(false);
+  const [aiKeywords, setAiKeywords] = useState<string[]>([]);
+  const [aiIntent, setAiIntent] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
   
   // Mobile responsive states
   const [showMobileCategories, setShowMobileCategories] = useState(false);
@@ -44,6 +50,66 @@ export default function ProductSection({ products, loading }: ProductSectionProp
   // Infinite scroll
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  // Product Detail Modal
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [showProductModal, setShowProductModal] = useState(false);
+
+  const handleProductClick = useCallback((product: Product) => {
+    setSelectedProduct(product);
+    setShowProductModal(true);
+  }, []);
+
+  const handleAskAI = useCallback((product: Product) => {
+    // Open chatbot with product context - dispatch custom event
+    window.dispatchEvent(new CustomEvent('openChatWithProduct', { detail: product }));
+  }, []);
+
+  // AI Search function
+  const performAiSearch = useCallback(async (query: string) => {
+    if (!query.trim() || !aiSearchEnabled) return;
+    
+    setAiSearching(true);
+    try {
+      const response = await fetch('/api/ai-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query }),
+      });
+      
+      const data = await response.json();
+      if (data.keywords) {
+        setAiKeywords(data.keywords);
+        setAiIntent(data.intent || '');
+      }
+    } catch (error) {
+      console.error('AI Search error:', error);
+    } finally {
+      setAiSearching(false);
+    }
+  }, [aiSearchEnabled]);
+
+  // Debounce search query for performance
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+      // Reset display count when search changes
+      if (searchQuery !== debouncedSearch) {
+        const cols = getColumnsForWidth(window.innerWidth);
+        const rows = Math.ceil(window.innerHeight / 280) + 2;
+        setDisplayCount(cols * rows);
+      }
+      
+      // Trigger AI search if enabled
+      if (aiSearchEnabled && searchQuery.trim()) {
+        performAiSearch(searchQuery);
+      } else {
+        setAiKeywords([]);
+        setAiIntent('');
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, aiSearchEnabled, performAiSearch]);
 
   // Calculate initial display count based on screen size
   useEffect(() => {
@@ -83,21 +149,32 @@ export default function ProductSection({ products, loading }: ProductSectionProp
     return ['Tất cả', ...cats];
   }, [products]);
 
-  // Filter products
+  // Filter products with search, category, and price
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
+      // Search filter - check title and phan_loai
+      let passesSearch = true;
+      if (debouncedSearch.trim()) {
+        const query = debouncedSearch.toLowerCase().trim();
+        const title = (p.title || '').toLowerCase();
+        const category = (p.phan_loai || '').toLowerCase();
+        
+        // If AI search is enabled and has keywords, use them
+        if (aiSearchEnabled && aiKeywords.length > 0) {
+          passesSearch = aiKeywords.some(keyword => 
+            title.includes(keyword.toLowerCase()) || 
+            category.includes(keyword.toLowerCase())
+          );
+        } else {
+          // Regular search
+          passesSearch = title.includes(query) || category.includes(query);
+        }
+      }
+      
       const priceStr = p.price_low || '0';
       const price = parseInt(priceStr.replace(/,/g, '')) || 0;
       
       const passesCategory = categoryFilter === 'Tất cả' || p.phan_loai === categoryFilter;
-      
-      // Search filter
-      let passesSearch = true;
-      if (searchQuery.trim()) {
-        const query = searchQuery.toLowerCase();
-        passesSearch = p.title.toLowerCase().includes(query) ||
-                       p.phan_loai?.toLowerCase().includes(query);
-      }
       
       let passesPrice = true;
       if (priceFilter === 100000) {
@@ -110,9 +187,9 @@ export default function ProductSection({ products, loading }: ProductSectionProp
         passesPrice = price >= 500000;
       }
       
-      return passesCategory && passesPrice && passesSearch;
+      return passesSearch && passesCategory && passesPrice;
     });
-  }, [products, categoryFilter, priceFilter, searchQuery]);
+  }, [products, categoryFilter, priceFilter, debouncedSearch, aiSearchEnabled, aiKeywords]);
 
   const handleCategoryChange = (cat: string) => {
     setCategoryFilter(cat);
@@ -122,23 +199,18 @@ export default function ProductSection({ products, loading }: ProductSectionProp
     setDisplayCount(cols * rows);
   };
 
-  const handleSearch = useCallback((query: string) => {
-    setSearchQuery(query);
-    // Reset display count for new search
-    const cols = getColumnsForWidth(window.innerWidth);
-    const rows = Math.ceil(window.innerHeight / 280) + 2;
-    setDisplayCount(cols * rows);
-  }, []);
-
   const clearAllFilters = () => {
     setPriceFilter(0);
     setCategoryFilter('Tất cả');
     setSearchQuery('');
+    setDebouncedSearch('');
+    setAiKeywords([]);
+    setAiIntent('');
   };
 
   const displayedProducts = filteredProducts.slice(0, displayCount);
   const hasMore = displayCount < filteredProducts.length;
-  const hasActiveFilters = priceFilter !== 0 || categoryFilter !== 'Tất cả' || searchQuery !== '';
+  const hasActiveFilters = priceFilter !== 0 || categoryFilter !== 'Tất cả' || debouncedSearch !== '';
 
   // Need to track hasMore in a ref to avoid stale closure in IntersectionObserver
   const hasMoreRef = useRef(hasMore);
@@ -190,49 +262,103 @@ export default function ProductSection({ products, loading }: ProductSectionProp
 
   return (
     <div className="space-y-4">
-      {/* Tet-themed Header with Search */}
-      <div className="relative rounded-2xl bg-gradient-to-r from-red-600 via-red-500 to-yellow-500 p-4 md:p-6">
-        {/* Decorative elements */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          {/* Cherry blossom pattern */}
-          <div className="absolute top-2 left-4 text-2xl animate-pulse">🌸</div>
-          <div className="absolute top-4 left-20 text-xl opacity-80">🌸</div>
-          <div className="absolute top-1 right-8 text-2xl animate-pulse delay-100">🌸</div>
-          <div className="absolute bottom-2 right-20 text-xl opacity-80">🌸</div>
+      {/* Search Bar with AI Toggle */}
+      <div className="relative">
+        <div className="relative flex items-center gap-2">
+          <div className="relative flex-1">
+            <div className="absolute left-4 flex items-center pointer-events-none">
+              {aiSearching ? (
+                <Loader2 className="w-5 h-5 text-orange-500 animate-spin" />
+              ) : aiSearchEnabled ? (
+                <Wand2 className="w-5 h-5 text-purple-500" />
+              ) : (
+                <Search className="w-5 h-5 text-gray-400" />
+              )}
+            </div>
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={aiSearchEnabled ? "Tìm thông minh: mặc gì đi biển..." : "Tìm kiếm sản phẩm..."}
+              className={`w-full pl-12 pr-12 py-3.5 bg-white border-2 rounded-2xl text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-4 transition-all duration-200 shadow-sm hover:shadow-md ${
+                aiSearchEnabled 
+                  ? 'border-purple-300 focus:border-purple-400 focus:ring-purple-100' 
+                  : 'border-gray-200 focus:border-orange-400 focus:ring-orange-100'
+              }`}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => {
+                  setSearchQuery('');
+                  setAiKeywords([]);
+                  setAiIntent('');
+                  searchInputRef.current?.focus();
+                }}
+                className="absolute right-4 p-1 rounded-full bg-gray-200 hover:bg-gray-300 transition-colors"
+              >
+                <X className="w-4 h-4 text-gray-600" />
+              </button>
+            )}
+          </div>
           
-          {/* Lanterns */}
-          <div className="absolute top-0 left-1/4 text-3xl">🏮</div>
-          <div className="absolute top-0 right-1/4 text-3xl">🏮</div>
-          
-          {/* Gold coins decoration */}
-          <div className="absolute bottom-1 left-10 text-xl opacity-70">🧧</div>
-          <div className="absolute bottom-2 right-12 text-xl opacity-70">🧧</div>
-          
-          {/* Sparkle overlay */}
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.2)_0%,transparent_50%)]"></div>
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_80%,rgba(255,215,0,0.15)_0%,transparent_50%)]"></div>
+          {/* AI Search Toggle */}
+          <motion.button
+            onClick={() => {
+              setAiSearchEnabled(!aiSearchEnabled);
+              if (!aiSearchEnabled && searchQuery.trim()) {
+                performAiSearch(searchQuery);
+              } else {
+                setAiKeywords([]);
+                setAiIntent('');
+              }
+            }}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className={`flex items-center gap-2 px-4 py-3.5 rounded-2xl font-medium transition-all whitespace-nowrap ${
+              aiSearchEnabled 
+                ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg shadow-purple-500/30' 
+                : 'bg-white border-2 border-gray-200 text-gray-600 hover:border-purple-300 hover:text-purple-600'
+            }`}
+          >
+            <Wand2 className="w-5 h-5" />
+            <span className="hidden sm:inline">AI</span>
+          </motion.button>
         </div>
         
-        <div className="relative z-10">
-          {/* Tet greeting */}
-          <div className="text-center mb-3">
-            <span className="text-yellow-200 text-xs font-medium tracking-wider">🎋 CHÚC MỪNG NĂM MỚI 🎋</span>
-          </div>
-          
-          {/* Search Box */}
-          <SearchBox 
-            products={products} 
-            onSearch={handleSearch}
-            placeholder="Tìm kiếm sản phẩm..."
-          />
-          
-          {/* Product count */}
-          <div className="text-center mt-3">
-            <span className="text-white/90 text-xs">
-              ✨ {filteredProducts.length} sản phẩm đang giảm giá ✨
+        {/* Search results count / AI Intent */}
+        {debouncedSearch && (
+          <motion.div 
+            initial={{ opacity: 0, y: -5 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mt-2 flex items-center gap-2 text-sm flex-wrap"
+          >
+            {aiSearchEnabled && aiIntent ? (
+              <>
+                <Wand2 className="w-4 h-4 text-purple-500" />
+                <span className="text-purple-600 font-medium">AI hiểu: {aiIntent}</span>
+                <span className="text-gray-400">•</span>
+              </>
+            ) : (
+              <Sparkles className="w-4 h-4 text-orange-500" />
+            )}
+            <span className="text-gray-600">
+              Tìm thấy <span className="font-semibold text-orange-600">{filteredProducts.length}</span> sản phẩm
+              {!aiSearchEnabled && ` cho "${debouncedSearch}"`}
             </span>
-          </div>
-        </div>
+            
+            {/* AI Keywords Display */}
+            {aiSearchEnabled && aiKeywords.length > 0 && (
+              <div className="flex gap-1 flex-wrap mt-1 w-full">
+                {aiKeywords.map((kw, i) => (
+                  <span key={i} className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs">
+                    {kw}
+                  </span>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        )}
       </div>
 
       {/* Mobile Toggle Buttons */}
@@ -395,7 +521,7 @@ export default function ProductSection({ products, loading }: ProductSectionProp
       <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 sm:gap-3">
         <AnimatePresence mode="popLayout">
           {displayedProducts.map((product, index) => (
-            <ProductCard key={product.product_id} product={product} index={index} />
+            <ProductCard key={product.product_id} product={product} index={index} onProductClick={handleProductClick} onAskAI={handleAskAI} />
           ))}
         </AnimatePresence>
       </div>
@@ -427,6 +553,14 @@ export default function ProductSection({ products, loading }: ProductSectionProp
           )}
         </div>
       )}
+
+      {/* Product Detail Modal */}
+      <ProductDetailModal
+        product={selectedProduct}
+        isOpen={showProductModal}
+        onClose={() => setShowProductModal(false)}
+        onAskAI={handleAskAI}
+      />
     </div>
   );
 }

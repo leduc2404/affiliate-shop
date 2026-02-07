@@ -1,10 +1,13 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import dynamic from 'next/dynamic';
 import ProductSection from '@/components/ProductSection';
+import ProductDetailModal from '@/components/ProductDetailModal';
 import NavMenu from '@/components/NavMenu';
+import Footer from '@/components/Footer';
 import { Product } from '@/types';
 
 // Dynamic import TetDecorations to reduce initial bundle and CLS
@@ -19,6 +22,11 @@ export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const hasFetched = useRef(false);
+  const searchParams = useSearchParams();
+  
+  // State for URL-triggered popup
+  const [urlProduct, setUrlProduct] = useState<Product | null>(null);
+  const [showUrlModal, setShowUrlModal] = useState(false);
 
   useEffect(() => {
     if (hasFetched.current) return;
@@ -42,6 +50,32 @@ export default function ProductsPage() {
     fetchProducts();
   }, []);
 
+  // Check URL for product ID and show popup
+  useEffect(() => {
+    const productId = searchParams.get('id');
+    if (productId && products.length > 0) {
+      const product = products.find(p => p.product_id === productId);
+      if (product) {
+        setUrlProduct(product);
+        setShowUrlModal(true);
+      }
+    }
+  }, [searchParams, products]);
+
+  const handleCloseUrlModal = useCallback(() => {
+    setShowUrlModal(false);
+    // Clear URL param when closing
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('id');
+      window.history.replaceState({}, '', url.pathname);
+    }
+  }, []);
+
+  const handleAskAI = useCallback((product: Product) => {
+    window.dispatchEvent(new CustomEvent('openChatWithProduct', { detail: product }));
+  }, []);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-red-50/50 via-white to-yellow-50/30 relative">
       <TetDecorations />
@@ -55,23 +89,17 @@ export default function ProductsPage() {
         >
           <ProductSection products={products} loading={loading} />
         </motion.div>
-
-        {/* Footer */}
-        <motion.footer
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.5 }}
-          className="mt-16 pb-8 text-center border-t border-red-100 pt-8"
-        >
-          <p className="text-gray-400 text-sm">
-            🧧 © 2025 Shop Deals - Chúc Mừng Năm Mới 🧧
-          </p>
-          <p className="text-gray-300 text-xs mt-2">
-            *Các link affiliate giúp chúng tôi nhận hoa hồng khi bạn mua hàng
-          </p>
-        </motion.footer>
       </div>
+
+      <Footer />
+
+      {/* URL-triggered Product Modal */}
+      <ProductDetailModal
+        product={urlProduct}
+        isOpen={showUrlModal}
+        onClose={handleCloseUrlModal}
+        onAskAI={handleAskAI}
+      />
     </div>
   );
 }
-

@@ -1,6 +1,14 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import AIChatBot from "@/components/AIChatBot";
+import { CompareProvider } from "@/contexts/CompareContext";
+import { CartProvider } from "@/contexts/CartContext";
+import { WishlistProvider } from "@/contexts/WishlistContext";
+import CompareBar from "@/components/CompareBar";
+import CompareModal from "@/components/CompareModal";
+import WishlistSidebar from "@/components/WishlistSidebar";
+import CartSidebar from "@/components/CartSidebar";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -40,7 +48,18 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-[#0a0a0a]`}
       >
-        {children}
+        <CartProvider>
+          <WishlistProvider>
+            <CompareProvider>
+              {children}
+              <WishlistSidebar />
+              <CartSidebar />
+              <CompareBar />
+              <CompareModal />
+              <AIChatBot />
+            </CompareProvider>
+          </WishlistProvider>
+        </CartProvider>
       </body>
     </html>
   );
