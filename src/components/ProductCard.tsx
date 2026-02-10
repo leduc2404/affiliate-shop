@@ -12,7 +12,7 @@ import { useCart } from '@/contexts/CartContext';
 interface ProductCardProps {
   product: Product;
   index: number;
-  onProductClick: (product: Product) => void;
+  onProductClick?: (product: Product) => void;
   onAskAI?: (product: Product) => void;
 }
 
@@ -75,7 +75,7 @@ export default function ProductCard({ product, index, onProductClick, onAskAI }:
       className="group bg-white border border-gray-100 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow duration-200 cursor-pointer"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      onClick={() => onProductClick(product)}
+      onClick={() => onProductClick?.(product)}
       whileHover={{ y: -2 }}
     >
       {/* Image Container */}

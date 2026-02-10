@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import dynamic from 'next/dynamic';
@@ -18,7 +18,7 @@ const TetDecorations = dynamic(() => import('@/components/TetDecorations'), {
   )
 });
 
-export default function ProductsPage() {
+function ProductsPageContent() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const hasFetched = useRef(false);
@@ -101,5 +101,17 @@ export default function ProductsPage() {
         onAskAI={handleAskAI}
       />
     </div>
+  );
+}
+
+export default function ProductsPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-red-50/50 via-white to-yellow-50/30 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-500" />
+      </div>
+    }>
+      <ProductsPageContent />
+    </Suspense>
   );
 }
